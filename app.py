@@ -114,6 +114,42 @@ def user_based_cf(train_matrix, n_neighbors=50):
     progress_bar.empty()
     return predictions
 
+def item_based_cf(train_matrix, n_neighbors=20):
+    """Week 2: Item-based collaborative filtering"""
+    filled_matrix = train_matrix.fillna(0)
+    item_similarity = cosine_similarity(filled_matrix.T)
+    item_similarity_df = pd.DataFrame(item_similarity,
+                                      index=train_matrix.columns,
+                                      columns=train_matrix.columns)
+    
+    predictions = pd.DataFrame(index=train_matrix.index, columns=train_matrix.columns)
+    
+    progress_bar = st.progress(0)
+    total_users = len(train_matrix.index)
+    
+    for i, user in enumerate(train_matrix.index[:100]):  # Limit for demo
+        user_ratings = train_matrix.loc[user].dropna()
+        
+        for movie in train_matrix.columns:
+            if pd.isna(train_matrix.loc[user, movie]):
+                similar_movies = item_similarity_df[movie].sort_values(ascending=False)[1:n_neighbors+1]
+                similar_movies = similar_movies[similar_movies.index.isin(user_ratings.index)]
+                
+                if len(similar_movies) > 0:
+                    weights = similar_movies.values
+                    ratings = user_ratings[similar_movies.index].values
+                    
+                    weighted_sum = np.sum(weights * ratings)
+                    sum_weights = np.sum(weights)
+                    
+                    if sum_weights > 0:
+                        predictions.loc[user, movie] = weighted_sum / sum_weights
+        
+        progress_bar.progress((i + 1) / min(100, total_users))
+    
+    progress_bar.empty()
+    return predictions
+
 def matrix_factorization_svd(train_matrix, n_factors=50):
     """Week 2: SVD for collaborative filtering"""
     filled_matrix = train_matrix.fillna(0)
@@ -127,7 +163,22 @@ def matrix_factorization_svd(train_matrix, n_factors=50):
                                   index=train_matrix.index,
                                   columns=train_matrix.columns)
     
-    return predictions_df
+    return predictions_df, U, sigma, Vt
+
+def matrix_factorization_nmf(train_matrix, n_factors=50):
+    """Week 2: NMF for collaborative filtering"""
+    filled_matrix = train_matrix.fillna(0)
+    
+    model = NMF(n_components=n_factors, init='random', random_state=42, max_iter=200)
+    W = model.fit_transform(filled_matrix)
+    H = model.components_
+    
+    predicted_ratings = np.dot(W, H)
+    predictions_df = pd.DataFrame(predicted_ratings,
+                                  index=train_matrix.index,
+                                  columns=train_matrix.columns)
+    
+    return predictions_df, model, W, H
 
 def create_content_features(movies, tags):
     """Week 3: Create content-based features"""
@@ -156,6 +207,47 @@ def content_based_similarity(movies):
     
     return content_similarity_df, tfidf
 
+def content_based_recommendations(movie_id, similarity_matrix, movies_df, n_recommendations=10):
+    """Get content-based recommendations for a single movie"""
+    if movie_id not in similarity_matrix.index:
+        return None
+    
+    sim_scores = similarity_matrix[movie_id].sort_values(ascending=False)
+    sim_scores = sim_scores[sim_scores.index != movie_id]
+    
+    top_movies = sim_scores.head(n_recommendations).index
+    recommendations = movies_df[movies_df['movieId'].isin(top_movies)].copy()
+    recommendations['similarity_score'] = sim_scores[top_movies].values
+    
+    return recommendations[['movieId', 'title', 'genres', 'similarity_score']].sort_values('similarity_score', ascending=False)
+
+def content_based_user_recommendations(user_id, user_ratings, similarity_matrix, movies_df, n_recommendations=10):
+    """Get content-based recommendations for a user"""
+    user_movies = user_ratings[user_ratings['userId'] == user_id]
+    if len(user_movies) == 0:
+        return None
+    
+    user_movies = user_movies.sort_values('rating', ascending=False)
+    
+    all_recommendations = pd.DataFrame()
+    
+    for _, row in user_movies.head(5).iterrows():
+        movie_id = row['movieId']
+        movie_rating = row['rating']
+        
+        similar_movies = content_based_recommendations(movie_id, similarity_matrix, movies_df, n_recommendations=20)
+        if similar_movies is not None:
+            similar_movies['weighted_score'] = similar_movies['similarity_score'] * (movie_rating / 5.0)
+            all_recommendations = pd.concat([all_recommendations, similar_movies])
+    
+    all_recommendations = all_recommendations[~all_recommendations['movieId'].isin(user_movies['movieId'])]
+    
+    final_recommendations = all_recommendations.groupby(['movieId', 'title', 'genres']).agg({
+        'weighted_score': 'sum'
+    }).reset_index()
+    
+    return final_recommendations.sort_values('weighted_score', ascending=False).head(n_recommendations)
+
 def hybrid_recommendations(user_id, cf_predictions, content_similarity, user_ratings, movies_df, 
                           cf_weight=0.7, content_weight=0.3, n_recommendations=10):
     """Week 3: Hybrid recommendation system"""
@@ -169,22 +261,16 @@ def hybrid_recommendations(user_id, cf_predictions, content_similarity, user_rat
             recommendations['cf_score'] = cf_scores
     
     # Get content-based scores
-    user_movies = user_ratings[user_ratings['userId'] == user_id]
-    if len(user_movies) > 0:
-        all_content_scores = pd.Series(dtype=float)
-        
-        for _, row in user_movies.sort_values('rating', ascending=False).head(5).iterrows():
-            movie_id = row['movieId']
-            if movie_id in content_similarity.index:
-                sim_scores = content_similarity[movie_id] * (row['rating'] / 5.0)
-                all_content_scores = all_content_scores.add(sim_scores, fill_value=0)
-        
-        if len(all_content_scores) > 0:
-            all_content_scores = (all_content_scores - all_content_scores.min()) / (all_content_scores.max() - all_content_scores.min())
-            for movie_id in all_content_scores.index:
+    content_recs = content_based_user_recommendations(user_id, user_ratings, content_similarity, movies_df, n_recommendations=50)
+    if content_recs is not None:
+        content_scores = content_recs.set_index('movieId')['weighted_score']
+        if len(content_scores) > 0:
+            content_scores = (content_scores - content_scores.min()) / (content_scores.max() - content_scores.min())
+            
+            for movie_id in content_scores.index:
                 if movie_id not in recommendations.index:
                     recommendations.loc[movie_id, 'cf_score'] = 0
-                recommendations.loc[movie_id, 'content_score'] = all_content_scores[movie_id]
+                recommendations.loc[movie_id, 'content_score'] = content_scores[movie_id]
     
     # Calculate hybrid score
     recommendations['content_score'] = recommendations['content_score'].fillna(0)
@@ -205,6 +291,37 @@ def hybrid_recommendations(user_id, cf_predictions, content_similarity, user_rat
     
     return final_recs[['movieId', 'title', 'genres', 'hybrid_score', 'cf_score', 'content_score']].sort_values('hybrid_score', ascending=False)
 
+def evaluate_model(predictions, test_data, model_name):
+    """Week 4: Evaluate model performance"""
+    test_predictions = []
+    test_actuals = []
+    
+    for _, row in test_data.iterrows():
+        user_id = row['userId']
+        movie_id = row['movieId']
+        actual_rating = row['rating']
+        
+        if user_id in predictions.index and movie_id in predictions.columns:
+            predicted_rating = predictions.loc[user_id, movie_id]
+            if not pd.isna(predicted_rating):
+                test_predictions.append(predicted_rating)
+                test_actuals.append(actual_rating)
+    
+    if len(test_predictions) > 0:
+        rmse = np.sqrt(mean_squared_error(test_actuals, test_predictions))
+        mae = mean_absolute_error(test_actuals, test_predictions)
+        coverage = len(test_predictions) / len(test_data)
+        
+        return {
+            'Model': model_name,
+            'RMSE': rmse,
+            'MAE': mae,
+            'Coverage': coverage,
+            'Predictions': len(test_predictions)
+        }
+    else:
+        return None
+
 # Main content based on week selection
 if "Week 1" in week_selection:
     st.header("Week 1: Data Collection & Exploratory Data Analysis")
@@ -214,99 +331,4 @@ if "Week 1" in week_selection:
     with col1:
         if st.button("Load MovieLens Data", type="primary"):
             with st.spinner("Loading data..."):
-                ratings, movies, tags, links = load_movielens_data()
-                
-                if ratings is not None:
-                    st.session_state.ratings_raw = ratings
-                    st.session_state.movies_raw = movies
-                    st.session_state.tags = tags
-                    st.session_state.links = links
-                    st.session_state.data_loaded = True
-                    st.success("Data loaded successfully!")
-    
-    if st.session_state.data_loaded:
-        ratings = st.session_state.ratings_raw
-        movies = st.session_state.movies_raw
-        
-        # Display basic statistics
-        st.subheader("📊 Dataset Overview")
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Total Ratings", f"{len(ratings):,}")
-        with col2:
-            st.metric("Unique Users", f"{ratings['userId'].nunique():,}")
-        with col3:
-            st.metric("Unique Movies", f"{ratings['movieId'].nunique():,}")
-        with col4:
-            sparsity = 1 - (len(ratings) / (ratings['userId'].nunique() * ratings['movieId'].nunique()))
-            st.metric("Sparsity", f"{sparsity:.2%}")
-        
-        # Data preprocessing
-        if st.button("Preprocess Data"):
-            with st.spinner("Preprocessing..."):
-                ratings_clean, movies_clean = preprocess_data(ratings, movies)
-                st.session_state.ratings = ratings_clean
-                st.session_state.movies = movies_clean
-                st.success("Data preprocessing completed!")
-                st.session_state.current_week = 1
-        
-        # Visualizations
-        st.subheader("📈 Data Visualizations")
-        
-        tab1, tab2, tab3 = st.tabs(["Rating Distribution", "User Activity", "Genre Analysis"])
-        
-        with tab1:
-            fig = px.histogram(ratings, x='rating', title='Distribution of Ratings',
-                              labels={'rating': 'Rating', 'count': 'Count'})
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with tab2:
-            ratings_per_user = ratings.groupby('userId').size().reset_index(name='count')
-            fig = px.histogram(ratings_per_user, x='count', title='Ratings per User Distribution',
-                              labels={'count': 'Number of Ratings'})
-            fig.update_yaxis(type='log')
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with tab3:
-            if 'movies' in st.session_state:
-                movies_clean = st.session_state.movies
-                all_genres = []
-                for genres_list in movies_clean['genres_list'].dropna():
-                    all_genres.extend(genres_list)
-                genre_counts = pd.Series(all_genres).value_counts().head(15)
-                
-                fig = px.bar(x=genre_counts.values, y=genre_counts.index, orientation='h',
-                            title='Top 15 Movie Genres', labels={'x': 'Count', 'y': 'Genre'})
-                st.plotly_chart(fig, use_container_width=True)
-
-elif "Week 2" in week_selection:
-    st.header("Week 2: Collaborative Filtering Models")
-    
-    if not st.session_state.data_loaded:
-        st.warning("Please load and preprocess data in Week 1 first!")
-    else:
-        if 'ratings' in st.session_state:
-            ratings = st.session_state.ratings
-            
-            # Train-test split
-            if st.button("Create Train-Test Split"):
-                train_data, test_data = train_test_split(ratings, test_size=0.2, random_state=42)
-                st.session_state.train_data = train_data
-                st.session_state.test_data = test_data
-                st.success(f"Train size: {len(train_data):,}, Test size: {len(test_data):,}")
-            
-            if 'train_data' in st.session_state:
-                train_matrix = create_user_item_matrix(st.session_state.train_data)
-                
-                st.subheader("Select Model to Train")
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    if st.button("Train User-Based CF", type="primary"):
-                        with st.spinner("Training User-Based CF..."):
-                            start_time = time.time()
-                            user_based_pred = user_based_cf(train_matrix, n_neighbors=50)
-                            st.session_state.user_based_predictions = user_based_pred
-                
+                ratings, movies, tags,
