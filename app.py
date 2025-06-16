@@ -5,17 +5,6 @@ import pandas as pd
 import numpy as np
 import time
 
-# Remove problematic imports for deployment:
-# import matplotlib.pyplot as plt
-# import seaborn as sns
-# from sklearn.metrics.pairwise import cosine_similarity
-# from sklearn.feature_extraction.text import TfidfVectorizer
-# from sklearn.model_selection import train_test_split
-# from scipy.sparse import csr_matrix
-# from scipy.sparse.linalg import svds
-# from sklearn.decomposition import NMF
-# from sklearn.metrics import mean_squared_error, mean_absolute_error
-
 # Page configuration
 st.set_page_config(
     page_title="Movie Recommendation AI",
