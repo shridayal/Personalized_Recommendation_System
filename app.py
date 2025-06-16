@@ -1,20 +1,20 @@
-# app.py - Movie Recommendation System Dashboard
+"""Streamlit Web App for Movie Recommendation AI"""
 
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.model_selection import train_test_split
-from scipy.sparse import csr_matrix
-from scipy.sparse.linalg import svds
-from sklearn.decomposition import NMF
-from sklearn.metrics import mean_squared_error, mean_absolute_error
 import time
-import warnings
-warnings.filterwarnings('ignore')
+
+# Remove problematic imports for deployment:
+# import matplotlib.pyplot as plt
+# import seaborn as sns
+# from sklearn.metrics.pairwise import cosine_similarity
+# from sklearn.feature_extraction.text import TfidfVectorizer
+# from sklearn.model_selection import train_test_split
+# from scipy.sparse import csr_matrix
+# from scipy.sparse.linalg import svds
+# from sklearn.decomposition import NMF
+# from sklearn.metrics import mean_squared_error, mean_absolute_error
 
 # Page configuration
 st.set_page_config(
@@ -47,40 +47,48 @@ page = st.sidebar.selectbox("Choose a page", [
 # Helper functions
 @st.cache_data
 def load_movielens_data():
-    try:
-        ratings = pd.read_csv('ratings.csv')
-        movies = pd.read_csv('movies.csv')
-        tags = pd.read_csv('tags.csv')
-        return ratings, movies, tags
-    except:
-        # Generate sample data if files not found
-        np.random.seed(42)
-        n_users = 1000
-        n_movies = 500
-        n_ratings = 10000
-        
-        ratings = pd.DataFrame({
-            'userId': np.random.randint(1, n_users+1, n_ratings),
-            'movieId': np.random.randint(1, n_movies+1, n_ratings),
-            'rating': np.random.choice([1, 2, 3, 4, 5], n_ratings, p=[0.1, 0.15, 0.25, 0.35, 0.15]),
-            'timestamp': pd.date_range('2020-01-01', periods=n_ratings, freq='H').astype(int) // 10**9
-        })
-        
-        genres = ['Action', 'Comedy', 'Drama', 'Horror', 'Romance', 'Sci-Fi', 'Thriller']
-        movies = pd.DataFrame({
-            'movieId': range(1, n_movies+1),
-            'title': [f"Movie {i}" for i in range(1, n_movies+1)],
-            'genres': ['|'.join(np.random.choice(genres, np.random.randint(1, 4), replace=False)) for _ in range(n_movies)]
-        })
-        
-        tags = pd.DataFrame({
-            'userId': np.random.randint(1, n_users+1, 5000),
-            'movieId': np.random.randint(1, n_movies+1, 5000),
-            'tag': np.random.choice(['good', 'bad', 'awesome', 'boring', 'classic'], 5000),
-            'timestamp': pd.date_range('2020-01-01', periods=5000, freq='H').astype(int) // 10**9
-        })
-        
-        return ratings, movies, tags
+    """Generate sample data for demo purposes"""
+    np.random.seed(42)
+    n_users = 1000
+    n_movies = 500
+    n_ratings = 10000
+    
+    ratings = pd.DataFrame({
+        'userId': np.random.randint(1, n_users+1, n_ratings),
+        'movieId': np.random.randint(1, n_movies+1, n_ratings),
+        'rating': np.random.choice([1, 2, 3, 4, 5], n_ratings, p=[0.1, 0.15, 0.25, 0.35, 0.15]),
+        'timestamp': pd.date_range('2020-01-01', periods=n_ratings, freq='H').astype(int) // 10**9
+    })
+    
+    # Sample movie titles and genres
+    movie_titles = [
+        "The Matrix", "Inception", "Titanic", "Avatar", "The Godfather",
+        "Pulp Fiction", "The Dark Knight", "Forrest Gump", "Star Wars",
+        "Jurassic Park", "The Lion King", "Finding Nemo", "Toy Story",
+        "Shrek", "The Avengers", "Iron Man", "Spider-Man", "Batman",
+        "Superman", "Wonder Woman", "Black Panther", "Captain Marvel",
+        "Doctor Strange", "Thor", "Hulk", "Ant-Man", "Guardians of the Galaxy"
+    ]
+    
+    genres = ['Action', 'Comedy', 'Drama', 'Horror', 'Romance', 'Sci-Fi', 'Thriller', 'Animation', 'Adventure']
+    
+    movies = pd.DataFrame({
+        'movieId': range(1, n_movies+1),
+        'title': [np.random.choice(movie_titles) + f" {i}" if i > len(movie_titles) else 
+                 movie_titles[i-1] if i <= len(movie_titles) else f"Movie {i}" 
+                 for i in range(1, n_movies+1)],
+        'genres': ['|'.join(np.random.choice(genres, np.random.randint(1, 4), replace=False)) 
+                  for _ in range(n_movies)]
+    })
+    
+    tags = pd.DataFrame({
+        'userId': np.random.randint(1, n_users+1, 5000),
+        'movieId': np.random.randint(1, n_movies+1, 5000),
+        'tag': np.random.choice(['good', 'bad', 'awesome', 'boring', 'classic', 'must-watch'], 5000),
+        'timestamp': pd.date_range('2020-01-01', periods=5000, freq='H').astype(int) // 10**9
+    })
+    
+    return ratings, movies, tags
 
 if page == "🏠 Home":
     st.header("Project Overview")
@@ -164,35 +172,23 @@ elif page == "📊 Data Analysis":
         ratings, movies, tags = load_movielens_data()
         st.session_state.ratings = ratings
         st.session_state.movies = movies
-        st.session_state.tags = tags
     
     ratings = st.session_state.ratings
     movies = st.session_state.movies
     
-    # Rating distribution
+    # Rating distribution using Streamlit charts
     col1, col2 = st.columns(2)
     
     with col1:
         st.subheader("Rating Distribution")
         rating_counts = ratings['rating'].value_counts().sort_index()
-        fig, ax = plt.subplots(figsize=(8, 4))
-        rating_counts.plot(kind='bar', ax=ax, color='steelblue')
-        ax.set_xlabel('Rating')
-        ax.set_ylabel('Count')
-        ax.set_title('Distribution of Ratings')
-        st.pyplot(fig)
+        st.bar_chart(rating_counts)
     
     with col2:
         st.subheader("Ratings Over Time")
         ratings['date'] = pd.to_datetime(ratings['timestamp'], unit='s')
-        ratings_by_month = ratings.groupby(ratings['date'].dt.to_period('M')).size()
-        fig, ax = plt.subplots(figsize=(8, 4))
-        ratings_by_month.plot(ax=ax, color='darkgreen')
-        ax.set_xlabel('Month')
-        ax.set_ylabel('Number of Ratings')
-        ax.set_title('Ratings Trend Over Time')
-        plt.xticks(rotation=45)
-        st.pyplot(fig)
+        ratings_by_month = ratings.groupby(ratings['date'].dt.to_period('M').astype(str)).size()
+        st.line_chart(ratings_by_month)
     
     # User and Movie statistics
     st.subheader("User Activity Analysis")
@@ -218,12 +214,7 @@ elif page == "📊 Data Analysis":
         all_genres.extend(genres)
     
     genre_counts = pd.Series(all_genres).value_counts().head(10)
-    
-    fig, ax = plt.subplots(figsize=(10, 6))
-    genre_counts.plot(kind='barh', ax=ax, color='coral')
-    ax.set_xlabel('Number of Movies')
-    ax.set_title('Top 10 Movie Genres')
-    st.pyplot(fig)
+    st.bar_chart(genre_counts)
 
 elif page == "🤖 Model Performance":
     st.header("Model Performance Comparison")
@@ -247,32 +238,14 @@ elif page == "🤖 Model Performance":
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("RMSE Comparison")
-        fig, ax = plt.subplots(figsize=(8, 5))
-        bars = ax.bar(df_performance['Model'], df_performance['RMSE'], color='skyblue')
-        ax.set_ylabel('RMSE (Lower is Better)')
-        ax.set_title('Root Mean Square Error by Model')
-        plt.xticks(rotation=45)
-        
-        # Highlight best model
-        min_idx = df_performance['RMSE'].idxmin()
-        bars[min_idx].set_color('green')
-        
-        st.pyplot(fig)
+        st.subheader("RMSE Comparison (Lower is Better)")
+        rmse_data = df_performance.set_index('Model')['RMSE']
+        st.bar_chart(rmse_data)
     
     with col2:
-        st.subheader("Coverage Comparison")
-        fig, ax = plt.subplots(figsize=(8, 5))
-        bars = ax.bar(df_performance['Model'], df_performance['Coverage'], color='lightcoral')
-        ax.set_ylabel('Coverage (Higher is Better)')
-        ax.set_title('Prediction Coverage by Model')
-        plt.xticks(rotation=45)
-        
-        # Highlight best model
-        max_idx = df_performance['Coverage'].idxmax()
-        bars[max_idx].set_color('green')
-        
-        st.pyplot(fig)
+        st.subheader("Coverage Comparison (Higher is Better)")
+        coverage_data = df_performance.set_index('Model')['Coverage']
+        st.bar_chart(coverage_data)
     
     # Best model highlight
     st.success("🏆 **Best Model**: Hybrid System with lowest RMSE (0.85) and highest coverage (95%)!")
@@ -290,7 +263,7 @@ elif page == "🤖 Model Performance":
         - Suffers from cold start
         """)
     
-        with col2:
+    with col2:
         st.info("""
         **Matrix Factorization**
         - Reduces dimensionality
@@ -456,18 +429,15 @@ elif page == "🔍 Movie Explorer":
                     with col3:
                         st.metric("Total Ratings", len(movie_ratings))
                     
-                    # Rating distribution for this movie
+                    # Rating distribution for this movie using Streamlit chart
                     if len(movie_ratings) > 0:
-                        fig, ax = plt.subplots(figsize=(6, 3))
-                        movie_ratings['rating'].value_counts().sort_index().plot(kind='bar', ax=ax, color='orange')
-                        ax.set_xlabel('Rating')
-                        ax.set_ylabel('Count')
-                        ax.set_title('Rating Distribution')
-                        st.pyplot(fig)
+                        st.subheader("Rating Distribution")
+                        rating_dist = movie_ratings['rating'].value_counts().sort_index()
+                        st.bar_chart(rating_dist)
         else:
             st.info("No movies found matching your search.")
     
-    # Genre filter
+        # Genre filter
     st.subheader("Browse by Genre")
     
     all_genres = set()
@@ -485,26 +455,31 @@ elif page == "🔍 Movie Explorer":
         }).reset_index()
         movie_ratings_avg.columns = ['movieId', 'avg_rating', 'rating_count']
         
-        # Filter movies with at least 10 ratings
-        movie_ratings_avg = movie_ratings_avg[movie_ratings_avg['rating_count'] >= 10]
+        # Filter movies with at least 5 ratings
+        movie_ratings_avg = movie_ratings_avg[movie_ratings_avg['rating_count'] >= 5]
         
         # Merge with genre movies
-        genre_movies_with_ratings = genre_movies.merge(movie_ratings_avg, on='movieId')
-        top_genre_movies = genre_movies_with_ratings.nlargest(10, 'avg_rating')
+        genre_movies_with_ratings = genre_movies.merge(movie_ratings_avg, on='movieId', how='left')
+        genre_movies_with_ratings = genre_movies_with_ratings.dropna()
         
-        st.subheader(f"Top 10 {selected_genre} Movies")
-        
-        for idx, (_, movie) in enumerate(top_genre_movies.iterrows()):
-            col1, col2, col3 = st.columns([3, 1, 1])
+        if len(genre_movies_with_ratings) > 0:
+            top_genre_movies = genre_movies_with_ratings.nlargest(10, 'avg_rating')
             
-            with col1:
-                st.markdown(f"**{idx+1}. {movie['title']}**")
+            st.subheader(f"Top 10 {selected_genre} Movies")
             
-            with col2:
-                st.metric("Avg Rating", f"{movie['avg_rating']:.2f} ⭐")
-            
-            with col3:
-                st.metric("# Ratings", movie['rating_count'])
+            for idx, (_, movie) in enumerate(top_genre_movies.iterrows()):
+                col1, col2, col3 = st.columns([3, 1, 1])
+                
+                with col1:
+                    st.markdown(f"**{idx+1}. {movie['title']}**")
+                
+                with col2:
+                    st.metric("Avg Rating", f"{movie['avg_rating']:.2f} ⭐")
+                
+                with col3:
+                    st.metric("# Ratings", int(movie['rating_count']))
+        else:
+            st.info(f"No {selected_genre} movies found with sufficient ratings.")
 
 elif page == "📈 System Metrics":
     st.header("System Metrics & Analytics")
@@ -543,71 +518,125 @@ elif page == "📈 System Metrics":
     col1, col2 = st.columns(2)
     
     with col1:
-        # User activity distribution
+        st.subheader("User Activity Distribution")
         user_activity = ratings.groupby('userId').size()
         
-        fig, ax = plt.subplots(figsize=(8, 5))
-        ax.hist(user_activity, bins=50, color='steelblue', edgecolor='black')
-        ax.set_xlabel('Number of Ratings')
-        ax.set_ylabel('Number of Users')
-        ax.set_title('User Activity Distribution')
-        ax.set_yscale('log')
-        st.pyplot(fig)
+        # Create bins for histogram
+        activity_bins = pd.cut(user_activity, bins=10, include_lowest=True)
+        activity_hist = activity_bins.value_counts().sort_index()
+        
+        # Convert interval index to string for better display
+        activity_hist.index = activity_hist.index.astype(str)
+        st.bar_chart(activity_hist)
     
     with col2:
-        # Rating trends by day of week
+        st.subheader("Ratings by Day of Week")
         ratings['dayofweek'] = pd.to_datetime(ratings['timestamp'], unit='s').dt.day_name()
         ratings_by_day = ratings.groupby('dayofweek').size()
         
         # Reorder days
         days_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
         ratings_by_day = ratings_by_day.reindex(days_order)
-        
-        fig, ax = plt.subplots(figsize=(8, 5))
-        ratings_by_day.plot(kind='bar', ax=ax, color='coral')
-        ax.set_xlabel('Day of Week')
-        ax.set_ylabel('Number of Ratings')
-        ax.set_title('Ratings by Day of Week')
-        plt.xticks(rotation=45)
-        st.pyplot(fig)
+        st.bar_chart(ratings_by_day)
     
     # Content metrics
     st.subheader("🎬 Content Metrics")
     
-    # Genre popularity over time
-    st.markdown("**Genre Popularity Trends**")
+    # Genre popularity trends (simulated data)
+    st.subheader("Genre Popularity Trends")
     
-    # Sample visualization
     popular_genres = ['Action', 'Comedy', 'Drama', 'Romance', 'Thriller']
-    genre_trends = pd.DataFrame({
-        'Month': pd.date_range('2023-01', periods=12, freq='M'),
-        **{genre: np.random.randint(100, 500, 12) for genre in popular_genres}
-    })
+    months = pd.date_range('2023-01', periods=12, freq='M').strftime('%Y-%m')
     
-    fig, ax = plt.subplots(figsize=(12, 6))
+    # Create sample trend data
+    genre_trends_data = {}
     for genre in popular_genres:
-        ax.plot(genre_trends['Month'], genre_trends[genre], marker='o', label=genre)
+        genre_trends_data[genre] = np.random.randint(100, 500, 12)
     
-    ax.set_xlabel('Month')
-    ax.set_ylabel('Number of Ratings')
-    ax.set_title('Genre Popularity Over Time')
-    ax.legend()
-    plt.xticks(rotation=45)
-    st.pyplot(fig)
+    genre_trends_df = pd.DataFrame(genre_trends_data, index=months)
+    st.line_chart(genre_trends_df)
     
-    # System health indicators
-    st.subheader("🔧 System Health")
+    # Movie statistics
+    st.subheader("📊 Movie Statistics")
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.metric("API Response Time", "45ms", "⬇ -5ms", delta_color="normal")
+        # Most rated movies
+        most_rated = ratings.groupby('movieId').size().sort_values(ascending=False).head(5)
+        most_rated_movies = movies[movies['movieId'].isin(most_rated.index)]
+        
+        st.markdown("**Most Rated Movies:**")
+        for movie_id in most_rated.index:
+            movie_title = movies[movies['movieId'] == movie_id]['title'].values[0]
+            rating_count = most_rated[movie_id]
+            st.write(f"• {movie_title[:20]}...: {rating_count} ratings")
     
     with col2:
-        st.metric("Model Accuracy", "94%", "⬆ +2%", delta_color="normal")
+        # Highest rated movies (with min 10 ratings)
+        movie_stats = ratings.groupby('movieId').agg({
+            'rating': ['mean', 'count']
+        }).reset_index()
+        movie_stats.columns = ['movieId', 'avg_rating', 'count']
+        movie_stats = movie_stats[movie_stats['count'] >= 10]
+        highest_rated = movie_stats.nlargest(5, 'avg_rating')
+        
+        st.markdown("**Highest Rated Movies:**")
+        for _, row in highest_rated.iterrows():
+            movie_title = movies[movies['movieId'] == row['movieId']]['title'].values[0]
+            st.write(f"• {movie_title[:20]}...: {row['avg_rating']:.2f} ⭐")
     
     with col3:
-        st.metric("System Uptime", "99.9%", "Stable", delta_color="off")
+        # Genre distribution
+        all_genres = []
+        for genres in movies['genres'].str.split('|'):
+            all_genres.extend(genres)
+        
+        genre_counts = pd.Series(all_genres).value_counts().head(5)
+        
+        st.markdown("**Popular Genres:**")
+        for genre, count in genre_counts.items():
+            st.write(f"• {genre}: {count} movies")
+    
+    # System health indicators
+    st.subheader("🔧 System Health")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("API Response Time", "45ms", "⬇ -5ms")
+    
+    with col2:
+        st.metric("Model Accuracy", "94%", "⬆ +2%")
+    
+    with col3:
+        st.metric("System Uptime", "99.9%", "Stable")
+    
+    with col4:
+        st.metric("Cache Hit Rate", "87%", "⬆ +3%")
+    
+    # Performance indicators
+    st.subheader("📈 Performance Indicators")
+    
+    # Sample performance data
+    performance_metrics = pd.DataFrame({
+        'Date': pd.date_range('2024-01-01', periods=30, freq='D'),
+        'Recommendations_Served': np.random.randint(1000, 5000, 30),
+        'Average_Response_Time': np.random.uniform(40, 60, 30),
+        'User_Satisfaction': np.random.uniform(4.0, 5.0, 30)
+    })
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Daily Recommendations Served")
+        recs_data = performance_metrics.set_index('Date')['Recommendations_Served']
+        st.line_chart(recs_data)
+    
+    with col2:
+        st.subheader("Average Response Time (ms)")
+        response_data = performance_metrics.set_index('Date')['Average_Response_Time']
+        st.line_chart(response_data)
 
 # Footer
 st.markdown("---")
@@ -615,7 +644,7 @@ st.markdown(
     """
     <div style='text-align: center'>
         <p>🎬 Movie Recommendation AI System | Built with Streamlit | 
-        <a href='https://github.com/yourusername/movie-recommendation'>View on GitHub</a></p>
+        <a href='https://github.com/shridayal/movie-recommendation-ai'>View on GitHub</a></p>
     </div>
     """, 
     unsafe_allow_html=True
