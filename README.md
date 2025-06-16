@@ -44,7 +44,6 @@ This project aims to implement **intelligent recommender systems** capable of:
 - ✅ **Mean Absolute Error (MAE)**
 - ✅ **Precision@K**
 - ✅ **Recall@K**
-- ✅ **Coverage and Diversity (Optional)**
 
 ---
 
