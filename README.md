@@ -63,7 +63,7 @@ This project aims to implement **intelligent recommender systems** capable of:
 
 ### 1. Clone the repository
 
-```bash
+bash
 git clone https://github.com/shridayal/Personalized_Recommendation_System.git
 cd Personalized_Recommendation_System
 
